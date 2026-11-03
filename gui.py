@@ -22,7 +22,7 @@ from db import (
     get_connection, init_db, authenticate,
     get_expertise_tree, get_type_path,
     create_expertise, save_expertise_data, confirm_expertise,
-    get_expertise, list_expertises,
+    get_expertise, list_expertises, get_knowledge_base,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -156,10 +156,17 @@ class App(tk.Tk):
         self._build_registry(reg_frame)
 
     def _build_catalog(self, parent):
-        ttk.Label(parent, text='Выберите вид экспертизы',
-                  font=('Segoe UI', 13, 'bold'), foreground=NAVY).pack(anchor='w', pady=(0, 8))
-        ttk.Label(parent, text='Двойной клик по конечному пункту (лист) для создания новой экспертизы.'
-                  ).pack(anchor='w', pady=(0, 12))
+        top_bar = ttk.Frame(parent)
+        top_bar.pack(fill='x', pady=(0, 12))
+
+        ttk.Label(top_bar, text='Выберите вид экспертизы',
+                  font=('Segoe UI', 13, 'bold'), foreground=NAVY).pack(side='left')
+        ttk.Button(top_bar, text='📚 База знаний',
+                   command=lambda: self._open_kb_from_catalog()).pack(side='right')
+
+        ttk.Label(parent, text='Двойной клик по конечному пункту — создать экспертизу. '
+                  'Выделите любой пункт и нажмите «База знаний».'
+                  ).pack(anchor='w', pady=(0, 8))
 
         tree = ttk.Treeview(parent, show='tree headings', columns=('desc',), height=20)
         tree.heading('#0', text='Название')
@@ -223,6 +230,103 @@ class App(tk.Tk):
                 f'пока не реализована.\n\nРеализована только: '
                 f'Бетон → Водонепроницаемость → Прибор №3407',
             )
+
+    def _get_type_id_from_tree(self) -> int | None:
+        """Извлекает type_id из выделенного элемента каталога."""
+        item = self._catalog_tree.focus()
+        if not item:
+            return None
+        tags = self._catalog_tree.item(item, 'tags')
+        for t in tags:
+            if t.startswith('type_'):
+                return int(t.split('_')[1])
+        return None
+
+    def _open_kb_from_catalog(self):
+        """Открывает базу знаний для выделенного элемента каталога."""
+        type_id = self._get_type_id_from_tree()
+        if not type_id:
+            messagebox.showinfo('База знаний', 'Выделите элемент в каталоге.')
+            return
+        row = self.conn.execute('SELECT name FROM expertise_types WHERE id=?', (type_id,)).fetchone()
+        name = row['name'] if row else ''
+        self._show_knowledge_base(type_id, name)
+
+    def _show_knowledge_base(self, type_id: int, title: str = ''):
+        """Открывает окно базы знаний для указанного типа экспертизы."""
+        entries = get_knowledge_base(self.conn, type_id, include_parents=True)
+
+        win = tk.Toplevel(self)
+        win.title(f'📚 База знаний — {title}')
+        win.geometry('800x550')
+        win.configure(bg=BG)
+        win.transient(self)
+        win.grab_set()
+
+        outer = ttk.Frame(win, padding=16)
+        outer.pack(fill='both', expand=True)
+
+        ttk.Label(outer, text=f'📚 База знаний', style='Title.TLabel').pack(anchor='w')
+        path = get_type_path(self.conn, type_id)
+        crumbs = ' → '.join(p['name'] for p in path)
+        ttk.Label(outer, text=crumbs, font=('Segoe UI', 10), foreground='#64748b').pack(anchor='w', pady=(2, 12))
+
+        if not entries:
+            ttk.Label(outer, text='Записей пока нет.', font=('Segoe UI', 11, 'italic')).pack(pady=20)
+            return
+
+        # Категории для иконок
+        cat_icons = {
+            'gost': '📜', 'document': '📄', 'methodology': '📋',
+            'reference': '📊', 'video': '🎬', 'faq': '❓',
+            'passport': '🔧',
+        }
+
+        canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(outer, orient='vertical', command=canvas.yview)
+        scroll_frame = ttk.Frame(canvas)
+
+        scroll_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=scroll_frame, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+
+        # Группируем по разделу (type_name)
+        current_section = None
+        for entry in entries:
+            section = entry['type_name']
+            if section != current_section:
+                current_section = section
+                ttk.Label(scroll_frame, text=f'— {section}',
+                          font=('Segoe UI', 11, 'bold'), foreground=NAVY).pack(
+                    anchor='w', padx=8, pady=(12, 4))
+
+            card = ttk.Frame(scroll_frame, style='Card.TFrame', padding=10)
+            card.pack(fill='x', padx=8, pady=3)
+
+            icon = cat_icons.get(entry['category'], '📄')
+            cat_label = entry['category'].upper()
+
+            header = ttk.Frame(card, style='Card.TFrame')
+            header.pack(fill='x')
+
+            ttk.Label(header, text=f'{icon}  {entry["title"]}',
+                      font=('Segoe UI', 10, 'bold'), background=WHITE).pack(side='left')
+            ttk.Label(header, text=cat_label,
+                      font=('Segoe UI', 8), foreground='#94a3b8',
+                      background=WHITE).pack(side='right')
+
+            if entry['content']:
+                ttk.Label(card, text=entry['content'], wraplength=700,
+                          background=WHITE, foreground='#475569').pack(anchor='w', pady=(4, 0))
+
+        # Прокрутка колесом мыши
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        canvas.bind_all('<MouseWheel>', _on_mousewheel)
+        win.protocol('WM_DELETE_WINDOW', lambda: (canvas.unbind_all('<MouseWheel>'), win.destroy()))
 
     def _build_registry(self, parent):
         ttk.Label(parent, text='Реестр проведённых экспертиз',
@@ -407,6 +511,11 @@ class App(tk.Tk):
         self._btn_crm = ttk.Button(btn_frame, text='📤 Отправить в CRM',
                                     command=self._send_to_crm)
         self._btn_crm.pack(side='right', padx=4)
+
+        ttk.Button(btn_frame, text='📚 База знаний',
+                   command=lambda: self._show_knowledge_base(
+                       type_id, 'Водонепроницаемость · №3407')
+                   ).pack(side='right', padx=4)
 
         # Загрузить существующую экспертизу
         if expertise_id:

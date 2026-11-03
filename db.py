@@ -77,16 +77,31 @@ def init_db(conn: sqlite3.Connection = None):
         sort_order      INTEGER NOT NULL DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS knowledge_base (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        expertise_type_id   INTEGER NOT NULL REFERENCES expertise_types(id),
+        title               TEXT    NOT NULL,
+        category            TEXT    NOT NULL DEFAULT 'document',
+        content             TEXT    NOT NULL DEFAULT '',
+        file_path           TEXT    NOT NULL DEFAULT '',
+        url                 TEXT    NOT NULL DEFAULT '',
+        sort_order          INTEGER NOT NULL DEFAULT 0,
+        created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_expertise_data_eid
         ON expertise_data(expertise_id);
     CREATE INDEX IF NOT EXISTS idx_expertises_type
         ON expertises(expertise_type_id);
     CREATE INDEX IF NOT EXISTS idx_expertise_types_parent
         ON expertise_types(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_base_type
+        ON knowledge_base(expertise_type_id);
     """)
 
     _seed_users(conn)
     _seed_expertise_types(conn)
+    _seed_knowledge_base(conn)
     conn.commit()
     if own:
         conn.close()
@@ -175,6 +190,126 @@ def _seed_expertise_types(conn: sqlite3.Connection):
                 insert_node(node_id, children)
 
     insert_node(None, tree)
+
+
+def _seed_knowledge_base(conn: sqlite3.Connection):
+    """Заполняет демо-записи базы знаний для каждого уровня каталога."""
+    row = conn.execute('SELECT COUNT(*) c FROM knowledge_base').fetchone()
+    if row['c'] > 0:
+        return
+
+    # Маппинг code → список записей (title, category, content)
+    kb_entries = {
+        'CONCRETE': [
+            ('Общие требования к бетонным смесям', 'document',
+             'Обзор нормативных требований к составу, транспортировке и укладке бетонных смесей.'),
+            ('Классификация бетонов по назначению', 'reference',
+             'Тяжёлые, лёгкие, жаростойкие, гидротехнические и специальные бетоны.'),
+        ],
+        'WATERPROOF': [
+            ('ГОСТ 12730.5-2018 — Полный текст', 'gost',
+             'Методы определения водонепроницаемости бетона. Основные положения и область применения.'),
+            ('Методические указания по определению W', 'methodology',
+             'Пошаговая процедура подготовки образцов, проведения испытания и оформления протокола.'),
+            ('Видеоинструкция: работа с прибором', 'video',
+             'Демонстрация подключения, калибровки и проведения испытания на приборе ДУХЛ-4.'),
+        ],
+        'W-3407': [
+            ('Паспорт прибора №3407', 'passport',
+             'Технические характеристики, объёмы камер, допустимые погрешности.'),
+            ('Таблица определения марки W по mc', 'reference',
+             'mc 3.1–4.5 → W2, 4.6–6.5 → W4, 6.6–9.4 → W6, 9.5–13.7 → W8, '
+             '13.8–19.6 → W10, 19.7–29.0 → W12, 29.1–42.0 → W14, '
+             '42.1–60.9 → W16, 61.0–88.5 → W18, 88.6–130.2 → W20'),
+            ('Инструкция: подготовка кубов 150×150×150', 'methodology',
+             'Требования к форме, размерам, выдержке и маркировке образцов перед испытанием.'),
+            ('FAQ: частые ошибки при испытании', 'faq',
+             'Недостаточная герметизация, неправильный отсчёт времени, влияние температуры.'),
+        ],
+        'W-WET': [
+            ('ГОСТ 12730.5-2018 — Метод «мокрого пятна»', 'gost',
+             'Описание альтернативного метода определения водонепроницаемости.'),
+        ],
+        'STRENGTH': [
+            ('ГОСТ 10180-2012 — Полный текст', 'gost',
+             'Методы определения прочности по контрольным образцам.'),
+            ('Классы бетона по прочности на сжатие', 'reference',
+             'Таблица соответствия: B7.5, B10, B15, B20, B25, B30, B35, B40 и выше.'),
+        ],
+        'STR-COMPRESS': [
+            ('Методика испытания кубов на сжатие', 'methodology',
+             'Подготовка пресса, центрирование образца, скорость нагружения, расчёт Rб.'),
+        ],
+        'STR-BEND': [
+            ('Методика испытания балок на изгиб', 'methodology',
+             'Схема нагружения, расчёт Rби, требования к размерам балки.'),
+        ],
+        'FROST': [
+            ('ГОСТ 10060-2012 — Полный текст', 'gost',
+             'Методы определения морозостойкости бетона.'),
+        ],
+        'FROST-BASE': [
+            ('Базовый метод: циклы замораживания-оттаивания', 'methodology',
+             'Режим камеры, контрольные образцы, критерии потери массы и прочности.'),
+        ],
+        'SOIL': [
+            ('Классификация грунтов по ГОСТ 25100', 'reference',
+             'Скальные, дисперсные, мёрзлые. Подразделение по генезису и составу.'),
+        ],
+        'SOIL-PHYS': [
+            ('ГОСТ 5180-2015 — Полный текст', 'gost',
+             'Методы лабораторного определения физических характеристик грунтов.'),
+        ],
+        'SOIL-WD': [
+            ('Методика определения влажности грунта', 'methodology',
+             'Весовой метод, сушка при 105°C, расчёт W.'),
+        ],
+        'SOIL-PLAST': [
+            ('Определение границ пластичности', 'methodology',
+             'Метод Казагранде и метод раскатывания в шнур.'),
+        ],
+        'SOIL-MECH': [
+            ('ГОСТ 12248-2010 — обзор', 'gost',
+             'Методы лабораторного определения характеристик прочности и деформируемости.'),
+        ],
+        'SOIL-COMPR': [
+            ('Компрессионные испытания: методика', 'methodology',
+             'Подготовка образца, схема нагружения, построение компрессионной кривой.'),
+        ],
+        'METAL': [
+            ('Общие требования к испытаниям металлоконструкций', 'reference',
+             'Нормативная база, виды испытаний, требования к лаборатории.'),
+        ],
+        'WELD': [
+            ('ГОСТ 6996-66 — обзор', 'gost',
+             'Методы определения механических свойств сварного соединения.'),
+        ],
+        'WELD-MECH': [
+            ('Испытание сварных соединений: методика', 'methodology',
+             'Вырезка образцов, растяжение, изгиб, ударная вязкость по Шарпи.'),
+        ],
+        'METAL-STR': [
+            ('ГОСТ 1497-84 — обзор', 'gost',
+             'Методы испытаний на растяжение металлических материалов.'),
+        ],
+        'METAL-TENS': [
+            ('Испытание на растяжение: методика', 'methodology',
+             'Подготовка образца, скорость деформирования, определение σ₀.₂ и σв.'),
+        ],
+    }
+
+    for code, entries in kb_entries.items():
+        type_row = conn.execute(
+            'SELECT id FROM expertise_types WHERE code=?', (code,)
+        ).fetchone()
+        if not type_row:
+            continue
+        for i, (title, category, content) in enumerate(entries):
+            conn.execute(
+                'INSERT INTO knowledge_base (expertise_type_id, title, category, content, sort_order) '
+                'VALUES (?,?,?,?,?)',
+                (type_row['id'], title, category, content, i),
+            )
 
 
 # ─── CRUD ────────────────────────────────────────────────────────
@@ -307,3 +442,34 @@ def list_expertises(conn: sqlite3.Connection, type_id: int = None,
     query += ' ORDER BY e.created_at DESC'
 
     return [dict(r) for r in conn.execute(query, params).fetchall()]
+
+
+def get_knowledge_base(conn: sqlite3.Connection, type_id: int,
+                       include_parents: bool = True) -> list[dict]:
+    """Возвращает записи базы знаний для типа экспертизы.
+
+    Если include_parents=True, включает также записи родительских уровней
+    (вид → подвид → подподвид — видишь всё от корня до текущего).
+    """
+    type_ids = [type_id]
+    if include_parents:
+        current = type_id
+        while True:
+            row = conn.execute(
+                'SELECT parent_id FROM expertise_types WHERE id=?', (current,)
+            ).fetchone()
+            if not row or not row['parent_id']:
+                break
+            type_ids.append(row['parent_id'])
+            current = row['parent_id']
+
+    placeholders = ','.join('?' * len(type_ids))
+    rows = conn.execute(
+        f"""SELECT kb.*, et.name as type_name
+            FROM knowledge_base kb
+            JOIN expertise_types et ON kb.expertise_type_id = et.id
+            WHERE kb.expertise_type_id IN ({placeholders})
+            ORDER BY et.id, kb.sort_order""",
+        type_ids,
+    ).fetchall()
+    return [dict(r) for r in rows]
