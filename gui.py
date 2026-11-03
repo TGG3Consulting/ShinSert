@@ -404,6 +404,10 @@ class App(tk.Tk):
         ttk.Button(btn_frame, text='PDF', command=self._export_pdf_w).pack(side='right', padx=4)
         ttk.Button(btn_frame, text='Excel', command=self._export_excel_w).pack(side='right', padx=4)
 
+        self._btn_crm = ttk.Button(btn_frame, text='📤 Отправить в CRM',
+                                    command=self._send_to_crm)
+        self._btn_crm.pack(side='right', padx=4)
+
         # Загрузить существующую экспертизу
         if expertise_id:
             self._load_expertise(expertise_id)
@@ -572,6 +576,21 @@ class App(tk.Tk):
             )
         except Exception as e:
             messagebox.showerror('Ошибка', str(e))
+
+    def _send_to_crm(self):
+        """Кнопка-пустышка для демонстрации интеграции с CRM."""
+        if not self._current_expertise_id:
+            messagebox.showwarning('Внимание', 'Сначала сохраните экспертизу.')
+            return
+        messagebox.showinfo(
+            'Отправка в CRM',
+            f'Экспертиза #{self._current_expertise_id} успешно отправлена в CRM.\n\n'
+            '(Демонстрационный режим — реальная интеграция будет подключена позже)',
+        )
+        self._status_lbl.configure(
+            text=f'Отправлено в CRM · #{self._current_expertise_id}',
+            foreground='#0369a1',
+        )
 
     def _get_meta_w(self) -> dict:
         return {
