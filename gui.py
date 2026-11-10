@@ -40,7 +40,7 @@ WHITE = 'white'
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('ՇINCERTIFICATE · Лабораторная платформа')
+        self.title('SHINCERTIFICATE · Лабораторная платформа')
         self.geometry('1200x780')
         self.minsize(1050, 700)
         self.configure(bg=BG)
@@ -89,7 +89,7 @@ class App(tk.Tk):
         frame = ttk.Frame(self._container, padding=40)
         frame.place(relx=0.5, rely=0.4, anchor='center')
 
-        ttk.Label(frame, text='ՇINCERTIFICATE', style='Title.TLabel').pack(pady=(0, 4))
+        ttk.Label(frame, text='SHINCERTIFICATE', style='Title.TLabel').pack(pady=(0, 4))
         ttk.Label(frame, text='Лабораторная платформа экспертиз',
                   style='Subtitle.TLabel').pack(pady=(0, 30))
 
@@ -136,7 +136,7 @@ class App(tk.Tk):
         top = ttk.Frame(outer)
         top.pack(fill='x', pady=(0, 12))
 
-        ttk.Label(top, text='ՇINCERTIFICATE', style='Title.TLabel').pack(side='left')
+        ttk.Label(top, text='SHINCERTIFICATE', style='Title.TLabel').pack(side='left')
         user_text = f'{self.current_user["full_name"]} ({self.current_user["role"]})'
         ttk.Label(top, text=user_text, font=('Segoe UI', 10, 'italic')).pack(side='right')
         ttk.Button(top, text='Выход', command=self._show_login).pack(side='right', padx=8)
