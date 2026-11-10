@@ -37,6 +37,19 @@ NAVY = '#12345a'
 WHITE = 'white'
 
 
+def _open_url(url: str):
+    """Открывает URL в браузере."""
+    import webbrowser
+    webbrowser.open(url)
+
+
+def _bind_click(title_lbl, card, desc_lbl, callback):
+    """Делает карточку кликабельной — курсор рука, по клику — callback."""
+    for widget in (title_lbl, card, desc_lbl):
+        widget.configure(cursor='hand2')
+        widget.bind('<Button-1>', lambda e, cb=callback: cb())
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -257,8 +270,8 @@ class App(tk.Tk):
         entries = get_knowledge_base(self.conn, type_id, include_parents=True)
 
         win = tk.Toplevel(self)
-        win.title(f'📚 База знаний — {title}')
-        win.geometry('800x550')
+        win.title(f'База знаний — {title}')
+        win.geometry('850x600')
         win.configure(bg=BG)
         win.transient(self)
         win.grab_set()
@@ -266,67 +279,167 @@ class App(tk.Tk):
         outer = ttk.Frame(win, padding=16)
         outer.pack(fill='both', expand=True)
 
-        ttk.Label(outer, text=f'📚 База знаний', style='Title.TLabel').pack(anchor='w')
+        ttk.Label(outer, text='База знаний', style='Title.TLabel').pack(anchor='w')
         path = get_type_path(self.conn, type_id)
         crumbs = ' → '.join(p['name'] for p in path)
-        ttk.Label(outer, text=crumbs, font=('Segoe UI', 10), foreground='#64748b').pack(anchor='w', pady=(2, 12))
+        ttk.Label(outer, text=crumbs, font=('Segoe UI', 10),
+                  foreground='#64748b').pack(anchor='w', pady=(2, 12))
 
         if not entries:
-            ttk.Label(outer, text='Записей пока нет.', font=('Segoe UI', 11, 'italic')).pack(pady=20)
+            ttk.Label(outer, text='Записей пока нет.',
+                      font=('Segoe UI', 11, 'italic')).pack(pady=20)
             return
 
-        # Категории для иконок
         cat_icons = {
-            'gost': '📜', 'document': '📄', 'methodology': '📋',
-            'reference': '📊', 'video': '🎬', 'faq': '❓',
-            'passport': '🔧',
+            'gost': '\U0001f4dc', 'document': '\U0001f4c4',
+            'methodology': '\U0001f4cb', 'reference': '\U0001f4ca',
+            'video': '\U0001f3ac', 'faq': '❓', 'passport': '\U0001f527',
         }
 
         canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
         scrollbar = ttk.Scrollbar(outer, orient='vertical', command=canvas.yview)
         scroll_frame = ttk.Frame(canvas)
-
-        scroll_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        scroll_frame.bind('<Configure>',
+                          lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.create_window((0, 0), window=scroll_frame, anchor='nw')
         canvas.configure(yscrollcommand=scrollbar.set)
-
         canvas.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
 
-        # Группируем по разделу (type_name)
         current_section = None
         for entry in entries:
             section = entry['type_name']
             if section != current_section:
                 current_section = section
                 ttk.Label(scroll_frame, text=f'— {section}',
-                          font=('Segoe UI', 11, 'bold'), foreground=NAVY).pack(
-                    anchor='w', padx=8, pady=(12, 4))
+                          font=('Segoe UI', 11, 'bold'),
+                          foreground=NAVY).pack(anchor='w', padx=8, pady=(12, 4))
+
+            icon = cat_icons.get(entry['category'], '\U0001f4c4')
+            cat_label = entry['category'].upper()
+            short = entry['content']
+            # Обрезаем описание до ~80 символов без клика
+            if len(short) > 90:
+                short = short[:87] + '...'
 
             card = ttk.Frame(scroll_frame, style='Card.TFrame', padding=10)
             card.pack(fill='x', padx=8, pady=3)
 
-            icon = cat_icons.get(entry['category'], '📄')
-            cat_label = entry['category'].upper()
-
             header = ttk.Frame(card, style='Card.TFrame')
             header.pack(fill='x')
 
-            ttk.Label(header, text=f'{icon}  {entry["title"]}',
-                      font=('Segoe UI', 10, 'bold'), background=WHITE).pack(side='left')
-            ttk.Label(header, text=cat_label,
-                      font=('Segoe UI', 8), foreground='#94a3b8',
-                      background=WHITE).pack(side='right')
+            title_lbl = tk.Label(header, text=f'{icon}  {entry["title"]}',
+                                 font=('Segoe UI', 10, 'bold'), bg=WHITE,
+                                 fg=NAVY, cursor='hand2')
+            title_lbl.pack(side='left')
+            ttk.Label(header, text=cat_label, font=('Segoe UI', 8),
+                      foreground='#94a3b8', background=WHITE).pack(side='right')
 
-            if entry['content']:
-                ttk.Label(card, text=entry['content'], wraplength=700,
-                          background=WHITE, foreground='#475569').pack(anchor='w', pady=(4, 0))
+            desc_lbl = tk.Label(card, text=short, wraplength=750,
+                                bg=WHITE, fg='#475569', anchor='w', justify='left')
+            desc_lbl.pack(anchor='w', pady=(4, 0))
 
-        # Прокрутка колесом мыши
+            # По клику — разное поведение для видео и остальных
+            if entry['category'] == 'video' and not entry.get('url'):
+                # Это блок-заголовок «Видеоматериалы» — открываем видеотеку
+                video_entries = [e for e in entries
+                                 if e['category'] == 'video' and e.get('url')]
+                _bind_click(title_lbl, card, desc_lbl,
+                            lambda ve=video_entries: self._show_video_library(ve, win))
+            elif entry['category'] == 'video' and entry.get('url'):
+                # Конкретное видео — открываем в браузере
+                url = entry['url']
+                _bind_click(title_lbl, card, desc_lbl,
+                            lambda u=url: _open_url(u))
+            else:
+                # Обычная статья — раскрываем полный текст
+                full_text = entry['content']
+                _bind_click(title_lbl, card, desc_lbl,
+                            lambda ft=full_text, tl=entry['title'], dl=desc_lbl:
+                            self._show_full_article(tl, ft, win))
+
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
         canvas.bind_all('<MouseWheel>', _on_mousewheel)
-        win.protocol('WM_DELETE_WINDOW', lambda: (canvas.unbind_all('<MouseWheel>'), win.destroy()))
+        win.protocol('WM_DELETE_WINDOW',
+                     lambda: (canvas.unbind_all('<MouseWheel>'), win.destroy()))
+
+    def _show_full_article(self, title: str, content: str, parent):
+        """Окно полного текста статьи."""
+        win = tk.Toplevel(parent)
+        win.title(title)
+        win.geometry('700x450')
+        win.configure(bg=WHITE)
+        win.transient(parent)
+        win.grab_set()
+
+        outer = ttk.Frame(win, padding=20)
+        outer.pack(fill='both', expand=True)
+        outer.configure(style='Card.TFrame')
+
+        tk.Label(outer, text=title, font=('Segoe UI', 13, 'bold'),
+                 bg=WHITE, fg=NAVY, wraplength=650, justify='left').pack(anchor='w', pady=(0, 12))
+
+        text = tk.Text(outer, wrap='word', font=('Segoe UI', 11),
+                       bg=WHITE, fg='#1e293b', bd=0, highlightthickness=0,
+                       padx=4, pady=4)
+        text.insert('1.0', content)
+        text.configure(state='disabled')
+        text.pack(fill='both', expand=True)
+
+        ttk.Button(outer, text='Закрыть', command=win.destroy).pack(pady=(12, 0))
+
+    def _show_video_library(self, videos: list, parent):
+        """Окно видеотеки с кнопками воспроизведения."""
+        import webbrowser
+
+        win = tk.Toplevel(parent)
+        win.title('Видеотека')
+        win.geometry('750x500')
+        win.configure(bg=BG)
+        win.transient(parent)
+        win.grab_set()
+
+        outer = ttk.Frame(win, padding=20)
+        outer.pack(fill='both', expand=True)
+
+        tk.Label(outer, text='\U0001f3ac  Видеотека', font=('Segoe UI', 16, 'bold'),
+                 bg=BG, fg=NAVY).pack(anchor='w', pady=(0, 4))
+        tk.Label(outer, text='Видеоматериалы по экспертизам',
+                 font=('Segoe UI', 10), bg=BG, fg='#64748b').pack(anchor='w', pady=(0, 16))
+
+        if not videos:
+            tk.Label(outer, text='Видео пока нет.', font=('Segoe UI', 11, 'italic'),
+                     bg=BG).pack(pady=20)
+            return
+
+        for v in videos:
+            card = ttk.Frame(outer, style='Card.TFrame', padding=12)
+            card.pack(fill='x', pady=4)
+
+            left = ttk.Frame(card, style='Card.TFrame')
+            left.pack(side='left', fill='x', expand=True)
+
+            tk.Label(left, text=f'\U0001f3ac  {v["title"]}',
+                     font=('Segoe UI', 11, 'bold'), bg=WHITE, fg=NAVY).pack(anchor='w')
+            tk.Label(left, text=v.get('content', ''), wraplength=500,
+                     bg=WHITE, fg='#475569', justify='left').pack(anchor='w', pady=(4, 0))
+
+            url = v['url']
+            # Определяем платформу
+            if 'youtube.com' in url or 'youtu.be' in url:
+                platform = 'YouTube'
+            elif 'rutube.ru' in url:
+                platform = 'RuTube'
+            else:
+                platform = 'Видео'
+
+            btn = tk.Button(card, text=f'▶  {platform}',
+                            font=('Segoe UI', 10, 'bold'),
+                            fg=WHITE, bg='#dc2626', activebackground='#b91c1c',
+                            cursor='hand2', bd=0, padx=16, pady=6,
+                            command=lambda u=url: webbrowser.open(u))
+            btn.pack(side='right', padx=(12, 0))
 
     def _build_registry(self, parent):
         ttk.Label(parent, text='Реестр проведённых экспертиз',
